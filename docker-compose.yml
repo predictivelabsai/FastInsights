@@ -1,0 +1,20 @@
+services:
+  fastinsights:
+    build: .
+    ports:
+      - "5008:5008"
+    environment:
+      FASTINSIGHTS_DB: /data/fastinsights.sqlite
+      FASTINSIGHTS_PORT: "5008"
+      MODEL_PROVIDER: ${MODEL_PROVIDER:-xai}
+      MODEL_NAME: ${MODEL_NAME:-grok-4-1-fast-reasoning}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      FASTINSIGHTS_ADMIN_PASSWORD: ${FASTINSIGHTS_ADMIN_PASSWORD:-FastInsights2026$$}
+      FASTINSIGHTS_SECRET: ${FASTINSIGHTS_SECRET:-}
+    volumes:
+      - fastinsights-data:/data
+volumes:
+  fastinsights-data:
