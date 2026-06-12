@@ -72,23 +72,105 @@ def dashboards_list():
     cards = [A(Div(H3(d["title"]), P(d["description"], cls="sub"),
                    P(f"{d['n']} charts", style="color:var(--text-mute);font-size:12px;margin-top:8px;")),
                href=f"/dashboards/{d['id']}", cls="card", style="display:block;color:var(--text);") for d in ds]
-    return _title("Dashboards", f"{len(ds)} dashboards"), Div(*cards, cls="grid-2")
+    new_form = Form(Input(name="title", placeholder="New dashboard name…", required=True, cls="askbox", style="max-width:280px;"),
+                    Input(name="description", placeholder="Description (optional)", cls="askbox", style="max-width:280px;"),
+                    Button("+ Create dashboard", cls="btn primary", type="submit"),
+                    method="post", action="/dashboards/new",
+                    style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;")
+    return (_title("Dashboards", f"{len(ds)} dashboards"),
+            Div(Div(H3("New dashboard"), cls="card-header"), new_form, cls="card"),
+            Div(*cards, cls="grid-2"))
 
 
-def dashboard_view(did):
+# ---------- no-SQL query builder --------------------------------------------
+
+def query_builder(dimension="", measure="", sort="desc", limit=20):
+    def _select(name, options, current):
+        opts = "".join(
+            f'<option value="{o}"{" selected" if o == current else ""}>{o}</option>' for o in options)
+        return NotStr(f'<select name="{name}" style="min-width:200px;padding:8px 10px;'
+                      f'border:1px solid var(--border);border-radius:8px;">{opts}</select>')
+
+    builder = Form(
+        Div(Div(Label("Measure (what to total)", style="font-size:12px;color:var(--text-mute);display:block;margin-bottom:4px;"),
+                _select("measure", db.BUILDER_MEASURES.keys(), measure or "Revenue")),
+            Div(Label("Dimension (group by)", style="font-size:12px;color:var(--text-mute);display:block;margin-bottom:4px;"),
+                _select("dimension", db.BUILDER_DIMENSIONS.keys(), dimension or "Product category")),
+            Div(Label("Sort", style="font-size:12px;color:var(--text-mute);display:block;margin-bottom:4px;"),
+                _select("sort", ["desc", "asc"], sort)),
+            Div(Label("Limit", style="font-size:12px;color:var(--text-mute);display:block;margin-bottom:4px;"),
+                Input(name="limit", type="number", value=str(limit), min="1", max="500",
+                      style="width:90px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;")),
+            style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;"),
+        Div(Button("Build & run", cls="btn primary", type="submit"), style="margin-top:12px;"),
+        hx_post="/build/run", hx_target="#build-result", hx_swap="innerHTML")
+    return (
+        _title("Query Builder", "Point-and-click analytics — no SQL. Pick a measure and a dimension."),
+        Div(Div(H3("Build a query"), cls="card-header"), builder, cls="card"),
+        Div(id="build-result"),
+    )
+
+
+def dashboard_view(did, edit=False):
     d = db.one("SELECT * FROM dashboards WHERE id=?", (did,))
     if not d:
         return _title("Dashboard not found"), P("No such dashboard.")
+    actions = [A("← All dashboards", href="/dashboards", cls="btn")]
+    if edit:
+        actions.append(A("✓ Done", href=f"/dashboards/{did}", cls="btn primary"))
+    else:
+        actions.append(A("✏ Edit", href=f"/dashboards/{did}?edit=1", cls="btn"))
+    return (_title(d["title"], d["description"], *actions),
+            Div(dashboard_grid(did, edit), id="dash-grid-wrap"))
+
+
+def dashboard_grid(did, edit=False):
+    """Just the chart grid (+ editor controls) — swapped in place during edits."""
     items = db.dashboard_charts(did)
     blocks = []
-    for it in items:
-        cols, data = db.run_sql(it["sql"])
-        blocks.append(Div(Div(Div(H3(it["title"]), cls="card-header"),
-                              *charts.plotly(f"dash-{did}-chart-{it['id']}", cols, data,
-                                             it["chart_type"], it["x_col"], it["y_col"]), cls="card"),
+    for i, it in enumerate(items):
+        try:
+            cols, data = db.run_sql(it["sql"])
+            body = charts.plotly(f"dash-{did}-chart-{it['id']}", cols, data,
+                                 it["chart_type"], it["x_col"], it["y_col"])
+        except db.SQLError as e:
+            body = [Div(NotStr(f"⚠ {e}"), cls="sql-result-err")]
+        header_bits = [H3(it["title"])]
+        if edit:
+            cid = it["id"]
+            other_w = "full" if it["width"] == "half" else "half"
+
+            def ctl(label, act, vals, title=""):
+                return Button(label, cls="btn sm", title=title,
+                              **{"hx-post": f"/dashboards/{did}/{act}", "hx-target": "#dash-grid-wrap",
+                                 "hx-swap": "innerHTML", "hx-vals": vals})
+
+            header_bits.append(Div(
+                ctl("↑", "move", f'{{"chart_id": {cid}, "direction": "up"}}', "Move up") if i > 0 else None,
+                ctl("↓", "move", f'{{"chart_id": {cid}, "direction": "down"}}', "Move down") if i < len(items) - 1 else None,
+                ctl(f"⤢ {other_w}", "width", f'{{"chart_id": {cid}, "width": "{other_w}"}}', "Toggle width"),
+                ctl("✕", "remove", f'{{"chart_id": {cid}}}', "Remove"),
+                cls="dash-ctl"))
+        blocks.append(Div(Div(Div(*header_bits, cls="card-header"), *body, cls="card"),
                           cls=f"dash-item {it['width']}"))
-    return (_title(d["title"], d["description"], A("← All dashboards", href="/dashboards", cls="btn")),
-            Div(*blocks, cls="dash-grid"))
+    grid = Div(*blocks, cls="dash-grid") if blocks else Div(P("No charts yet — add one below.", cls="sub"), cls="card")
+    if not edit:
+        return grid
+    # editor footer: add an existing chart
+    avail = db.charts_not_on(did)
+    if avail:
+        opts = "".join(f'<option value="{c["id"]}">{c["title"]} ({c["chart_type"]})</option>' for c in avail)
+        adder = Form(
+            NotStr(f'<select name="chart_id" required style="min-width:260px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;">{opts}</select>'),
+            NotStr('<select name="width" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;">'
+                   '<option value="half">half width</option><option value="full">full width</option></select>'),
+            Button("+ Add chart", cls="btn primary", type="submit"),
+            **{"hx-post": f"/dashboards/{did}/add", "hx-target": "#dash-grid-wrap", "hx-swap": "innerHTML"},
+            style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;")
+    else:
+        adder = P("All saved charts are already on this dashboard. "
+                  "Build more in the Query Builder or SQL Lab.", cls="sub")
+    return Div(grid, Div(Div(H3("Add a chart"), cls="card-header"), adder, cls="card", style="margin-top:16px;"))
 
 
 # ---------- queries & charts ------------------------------------------------

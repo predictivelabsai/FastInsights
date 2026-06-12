@@ -194,3 +194,124 @@ def delete_query(qid: int):
     with cursor() as conn:
         conn.execute("DELETE FROM charts WHERE query_id=?", (qid,))
         conn.execute("DELETE FROM queries WHERE id=?", (qid,))
+        conn.execute("DELETE FROM dashboard_charts WHERE chart_id NOT IN (SELECT id FROM charts)")
+
+
+# --- dashboard editor (transactional) ---------------------------------------
+
+def create_dashboard(title: str, description: str = "") -> int:
+    title = (title or "Untitled dashboard").strip() or "Untitled dashboard"
+    with cursor() as conn:
+        conn.execute("INSERT INTO dashboards(title,description) VALUES (?,?)", (title, description.strip()))
+        return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def charts_not_on(did: int):
+    """Charts that aren't already placed on this dashboard."""
+    return rows("""SELECT id, title, chart_type FROM charts
+                   WHERE id NOT IN (SELECT chart_id FROM dashboard_charts WHERE dashboard_id=?)
+                   ORDER BY title""", (did,))
+
+
+def add_chart_to_dashboard(did: int, chart_id: int, width: str = "half") -> bool:
+    if not chart(chart_id):
+        return False
+    if one("SELECT 1 FROM dashboard_charts WHERE dashboard_id=? AND chart_id=?", (did, chart_id)):
+        return False
+    with cursor() as conn:
+        nxt = (conn.execute("SELECT COALESCE(MAX(position),0) FROM dashboard_charts WHERE dashboard_id=?",
+                            (did,)).fetchone()[0]) + 1
+        conn.execute("INSERT INTO dashboard_charts(dashboard_id,chart_id,position,width) VALUES (?,?,?,?)",
+                     (did, chart_id, nxt, width if width in ("half", "full") else "half"))
+    return True
+
+
+def remove_chart_from_dashboard(did: int, chart_id: int) -> bool:
+    with cursor() as conn:
+        conn.execute("DELETE FROM dashboard_charts WHERE dashboard_id=? AND chart_id=?", (did, chart_id))
+    return True
+
+
+def set_chart_width(did: int, chart_id: int, width: str) -> bool:
+    if width not in ("half", "full"):
+        return False
+    with cursor() as conn:
+        conn.execute("UPDATE dashboard_charts SET width=? WHERE dashboard_id=? AND chart_id=?",
+                     (width, did, chart_id))
+    return True
+
+
+def move_chart(did: int, chart_id: int, direction: str) -> bool:
+    """Swap this chart's position with its neighbour above/below."""
+    items = rows("SELECT chart_id, position FROM dashboard_charts WHERE dashboard_id=? ORDER BY position",
+                 (did,))
+    idx = next((i for i, it in enumerate(items) if it["chart_id"] == chart_id), None)
+    if idx is None:
+        return False
+    swap = idx - 1 if direction == "up" else idx + 1
+    if swap < 0 or swap >= len(items):
+        return False
+    a, b = items[idx], items[swap]
+    with cursor() as conn:
+        conn.execute("UPDATE dashboard_charts SET position=? WHERE dashboard_id=? AND chart_id=?",
+                     (b["position"], did, a["chart_id"]))
+        conn.execute("UPDATE dashboard_charts SET position=? WHERE dashboard_id=? AND chart_id=?",
+                     (a["position"], did, b["chart_id"]))
+    return True
+
+
+# --- no-SQL query builder ---------------------------------------------------
+# A metadata-driven builder over the wh_orders star schema: pick a dimension
+# (group-by) and a measure (aggregate) and we assemble safe SQL — only the joins
+# each side declares are added, in dependency order.
+
+BUILDER_BASE = "wh_orders o"
+BUILDER_JOINS = {
+    "products":  "JOIN wh_products p ON p.product_id = o.product_id",
+    "customers": "JOIN wh_customers c ON c.customer_id = o.customer_id",
+    "regions":   "JOIN wh_regions r ON r.region_id = c.region_id",
+}
+_JOIN_ORDER = {"products": 0, "customers": 1, "regions": 2}
+
+BUILDER_DIMENSIONS = {
+    "Month":            {"expr": "substr(o.order_date,1,7)", "joins": []},
+    "Channel":          {"expr": "o.channel",               "joins": []},
+    "Product category": {"expr": "p.category",              "joins": ["products"]},
+    "Product":          {"expr": "p.product",               "joins": ["products"]},
+    "Customer segment": {"expr": "c.segment",               "joins": ["customers"]},
+    "Region":           {"expr": "r.region",                "joins": ["customers", "regions"]},
+    "Country":          {"expr": "r.country",               "joins": ["customers", "regions"]},
+}
+BUILDER_MEASURES = {
+    "Revenue":         {"expr": "SUM(o.revenue)",        "joins": []},
+    "Cost":            {"expr": "SUM(o.cost)",           "joins": []},
+    "Gross margin":    {"expr": "SUM(o.revenue-o.cost)", "joins": []},
+    "Quantity":        {"expr": "SUM(o.quantity)",       "joins": []},
+    "Order count":     {"expr": "COUNT(*)",              "joins": []},
+    "Avg order value": {"expr": "ROUND(AVG(o.revenue),2)", "joins": []},
+}
+
+
+def build_sql(dimension: str, measure: str, sort: str = "desc", limit: int = 20) -> str:
+    d = BUILDER_DIMENSIONS.get(dimension)
+    m = BUILDER_MEASURES.get(measure)
+    if not d or not m:
+        raise SQLError("Pick a dimension and a measure.")
+    joins = []
+    for j in list(d["joins"]) + list(m["joins"]):
+        if j not in joins:
+            joins.append(j)
+    joins.sort(key=lambda j: _JOIN_ORDER[j])
+    join_sql = (" " + " ".join(BUILDER_JOINS[j] for j in joins)) if joins else ""
+    try:
+        limit = max(1, min(int(limit), 500))
+    except (TypeError, ValueError):
+        limit = 20
+    order_dir = "ASC" if sort == "asc" else "DESC"
+    # Month reads best in chronological order regardless of measure
+    order_by = "1 ASC" if dimension == "Month" else f"2 {order_dir}"
+    return (f'SELECT {d["expr"]} AS "{dimension}", {m["expr"]} AS "{measure}"\n'
+            f"FROM {BUILDER_BASE}{join_sql}\n"
+            f'GROUP BY {d["expr"]}\n'
+            f"ORDER BY {order_by}\n"
+            f"LIMIT {limit}")

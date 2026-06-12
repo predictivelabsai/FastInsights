@@ -103,9 +103,71 @@ def get(session):
     return _guard(session, "dashboards", views.dashboards_list)
 
 
+@rt("/dashboards/new")
+def post(session, title: str = "", description: str = ""):
+    if not _user(session):
+        return RedirectResponse("/login", status_code=303)
+    did = db.create_dashboard(title, description)
+    return RedirectResponse(f"/dashboards/{did}?edit=1", status_code=303)
+
+
 @rt("/dashboards/{did}")
-def get(session, did: int):
-    return _guard(session, "dashboards", lambda: views.dashboard_view(did))
+def get(session, did: int, edit: int = 0):
+    return _guard(session, "dashboards", lambda: views.dashboard_view(did, edit=bool(edit)))
+
+
+def _dashfrag(session, did):
+    if not _user(session):
+        return Response("Unauthorized", status_code=401)
+    return views.dashboard_grid(did, edit=True)
+
+
+@rt("/dashboards/{did}/add")
+def post(session, did: int, chart_id: int = 0, width: str = "half"):
+    if not _user(session):
+        return Response("Unauthorized", status_code=401)
+    db.add_chart_to_dashboard(did, chart_id, width)
+    return _dashfrag(session, did)
+
+
+@rt("/dashboards/{did}/remove")
+def post(session, did: int, chart_id: int = 0):
+    if not _user(session):
+        return Response("Unauthorized", status_code=401)
+    db.remove_chart_from_dashboard(did, chart_id)
+    return _dashfrag(session, did)
+
+
+@rt("/dashboards/{did}/move")
+def post(session, did: int, chart_id: int = 0, direction: str = "up"):
+    if not _user(session):
+        return Response("Unauthorized", status_code=401)
+    db.move_chart(did, chart_id, direction)
+    return _dashfrag(session, did)
+
+
+@rt("/dashboards/{did}/width")
+def post(session, did: int, chart_id: int = 0, width: str = "half"):
+    if not _user(session):
+        return Response("Unauthorized", status_code=401)
+    db.set_chart_width(did, chart_id, width)
+    return _dashfrag(session, did)
+
+
+@rt("/build")
+def get(session):
+    return _guard(session, "builder", views.query_builder)
+
+
+@rt("/build/run")
+def post(session, dimension: str = "", measure: str = "", sort: str = "desc", limit: int = 20):
+    if not _user(session):
+        return Response("Unauthorized", status_code=401)
+    try:
+        sql = db.build_sql(dimension, measure, sort, limit)
+    except db.SQLError as e:
+        return Div(Div(NotStr(f"⚠ {e}"), cls="sql-result-err"), cls="card")
+    return views.sql_result(sql, ai_note=f"Built from <b>{measure}</b> by <b>{dimension}</b>.")
 
 
 @rt("/queries")

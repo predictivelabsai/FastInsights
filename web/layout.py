@@ -52,9 +52,11 @@ table.tbl td.num,table.tbl th.num{text-align:right;font-variant-numeric:tabular-
 .pill.bar{background:#dbe7fe;color:#1d4ed8;} .pill.line{background:#dcfce7;color:#166534;} .pill.pie{background:#fef3c7;color:#92400e;} .pill.number{background:#ede9fe;color:#6d28d9;}
 .dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 .dash-item.full{grid-column:1 / -1;}
+.dash-ctl{display:inline-flex;gap:4px;}
+.dash-ctl .btn.sm{padding:2px 8px;font-size:12px;line-height:1.3;}
 .plot{width:100%;height:300px;}
 .btn{padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;}
-.btn:hover{background:var(--surface-2);} .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);} .btn.primary:hover{background:var(--accent-hover);}
+.btn:hover{background:var(--surface-2);} .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);} .btn.primary:hover{background:var(--accent-hover);} .btn.sm{padding:3px 9px;font-size:12px;}
 .seg{display:inline-flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
 .seg a{padding:6px 12px;border:1px solid var(--border);border-radius:8px;color:var(--text-dim);background:var(--surface);font-size:13px;}
 .seg a.active{background:var(--accent);color:#fff;border-color:var(--accent);}
@@ -100,6 +102,7 @@ NAV_ITEMS = [
     ("OVERVIEW", [("home", "Home", "📊", "/"), ("ai", "AI Assistant", "🤖", "/ai")]),
     ("ANALYZE", [("dashboards", "Dashboards", "📈", "/dashboards"),
                  ("queries", "Queries & Charts", "🧩", "/queries"),
+                 ("builder", "Query Builder", "🧱", "/build"),
                  ("sqllab", "SQL Lab + Ask AI", "🧠", "/sql")]),
     ("DATA", [("sources", "Data Source", "🗄️", "/sources")]),
     ("HELP", [("guide", "User Guide", "📖", "/guide")]),

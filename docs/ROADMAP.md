@@ -12,6 +12,8 @@ FastInsights ports the **core** of [Frappe Insights](https://github.com/frappe/i
 | Queries | `Insights Query v3` | `queries` (saved SQL) + SQL lab |
 | Charts | `Insights Chart v3` | `charts` + Plotly (bar/line/pie/row) |
 | Dashboards | `Insights Dashboard v3`/`Item` | `dashboards` + responsive grid |
+| **Dashboard editor** | `Insights Dashboard Item` | create board, add/remove/reorder/resize tiles (HTMX) |
+| **No-SQL query builder** | `is_builder_query` | pick a measure + dimension → safe SQL, auto-joins |
 | Read-only execution | query engine | `db.run_sql()` guard (single SELECT only) |
 | **AI text-to-SQL** | *(not upstream)* | natural language → SQL → chart |
 | Metric chat | *(not upstream)* | grounded multi-provider assistant |
@@ -20,10 +22,15 @@ FastInsights ports the **core** of [Frappe Insights](https://github.com/frappe/i
 
 1. ✅ **Save ad-hoc queries** (done) — the SQL lab / AI result saves as a new
    `query` + `chart` (currently the 7 saved queries are seeded).
-2. **Query builder** — `is_builder_query` (no-SQL visual builder: pick table,
-   columns, filters, group-by) for non-technical users.
-3. **Dashboard editor** — add/remove/reorder charts, resize tiles
-   (`Insights Dashboard Item` layout), and dashboard-level filters.
+2. ✅ **Query builder** (done) — a metadata-driven no-SQL builder: pick a
+   **measure** (Revenue / Margin / Quantity / Order count / AOV) and a
+   **dimension** (Month / Channel / Category / Product / Segment / Region /
+   Country); only the joins each side declares are added, in dependency order,
+   and the generated SQL still passes the read-only guard. Result is chartable
+   and savable like any other query.
+3. ✅ **Dashboard editor** (done) — create a dashboard, add an existing chart
+   (half/full width), reorder tiles up/down, toggle a tile's width and remove
+   it — all HTMX, swapping just the grid. Dashboard-level filters still to come.
 4. **Workbooks & folders** — `Insights Workbook`, `Folder` (organise queries
    and charts into projects).
 5. **Variables / parameters** — `Insights Query Variable` (parameterised
@@ -48,5 +55,8 @@ The headline is **AI text-to-SQL with a hard read-only guard**: `db.run_sql()`
 rejects anything that isn't a single `SELECT`/`WITH`, blocks DML/DDL keywords,
 and auto-applies a `LIMIT`. This lets the LLM (or a curious analyst) write
 arbitrary queries safely against the warehouse. Charts are server-rendered
-Plotly specs (`web/charts.py`); the dashboard composer that lets users assemble
-those into boards is the most valuable next feature.
+Plotly specs (`web/charts.py`), and the **dashboard composer** now lets users
+assemble those into boards (add/remove/reorder/resize, all HTMX). The **no-SQL
+builder** generalises the safe path to non-technical users: it never accepts raw
+SQL — it assembles a known-safe query from a curated measure/dimension catalogue,
+so the read-only guard and the builder are belt-and-braces.
