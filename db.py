@@ -23,8 +23,9 @@ CHART_TYPES = ["bar", "line", "pie", "row", "number"]
 
 
 def connect():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
@@ -172,3 +173,24 @@ def dashboard_charts(did: int):
                    JOIN charts ch ON ch.id=dc.chart_id
                    LEFT JOIN queries q ON q.id=ch.query_id
                    WHERE dc.dashboard_id=? ORDER BY dc.position""", (did,))
+
+
+# --- save / delete saved queries (transactional) ----------------------------
+
+def save_query(title: str, sql: str, chart_type: str = "bar", x_col: str = None, y_col: str = None) -> int:
+    title = (title or "Untitled query").strip() or "Untitled query"
+    if chart_type not in CHART_TYPES:
+        chart_type = "bar"
+    with cursor() as conn:
+        conn.execute("INSERT INTO queries(title,description,sql,folder) VALUES (?,?,?,'Saved')",
+                     (title, "Saved from the SQL lab.", sql.strip()))
+        qid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute("INSERT INTO charts(title,query_id,chart_type,x_col,y_col) VALUES (?,?,?,?,?)",
+                     (title, qid, chart_type, x_col, y_col))
+    return qid
+
+
+def delete_query(qid: int):
+    with cursor() as conn:
+        conn.execute("DELETE FROM charts WHERE query_id=?", (qid,))
+        conn.execute("DELETE FROM queries WHERE id=?", (qid,))

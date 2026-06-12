@@ -18,7 +18,7 @@ FastInsights ports the **core** of [Frappe Insights](https://github.com/frappe/i
 
 ## Near-term roadmap 🔜
 
-1. **Save ad-hoc queries** — let the SQL lab / AI result be saved as a new
+1. ✅ **Save ad-hoc queries** (done) — the SQL lab / AI result saves as a new
    `query` + `chart` (currently the 7 saved queries are seeded).
 2. **Query builder** — `is_builder_query` (no-SQL visual builder: pick table,
    columns, filters, group-by) for non-technical users.

@@ -113,6 +113,26 @@ def get(session):
     return _guard(session, "queries", views.queries_list)
 
 
+@rt("/queries/save")
+def post(session, title: str = "", sql: str = "", chart_type: str = "bar", x_col: str = "", y_col: str = ""):
+    if not _user(session):
+        return RedirectResponse("/login", status_code=303)
+    try:
+        db.run_sql(sql)  # validate before saving
+    except db.SQLError:
+        return RedirectResponse("/sql", status_code=303)
+    qid = db.save_query(title, sql, chart_type, x_col or None, y_col or None)
+    return RedirectResponse(f"/queries/{qid}", status_code=303)
+
+
+@rt("/queries/{qid}/delete")
+def post(session, qid: int):
+    if not _user(session):
+        return RedirectResponse("/login", status_code=303)
+    db.delete_query(qid)
+    return RedirectResponse("/queries", status_code=303)
+
+
 @rt("/queries/{qid}")
 def get(session, qid: int):
     return _guard(session, "queries", lambda: views.query_view(qid))

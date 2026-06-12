@@ -116,7 +116,10 @@ def query_view(qid):
         chart_card = Div(Div(H3("Chart"), Span(ch["chart_type"], cls=f"pill {ch['chart_type']}"), cls="card-header"),
                          *charts.plotly(f"q-{qid}-chart", cols, data, ch["chart_type"], ch["x_col"], ch["y_col"]),
                          cls="card")
-    return (_title(q["title"], q["description"] or "", A("← All queries", href="/queries", cls="btn")),
+    del_btn = Form(Button("🗑 Delete", cls="btn", type="submit"),
+                   method="post", action=f"/queries/{qid}/delete", style="display:inline;") if q.get("folder") == "Saved" else None
+    return (_title(q["title"], q["description"] or "",
+                   A("← All queries", href="/queries", cls="btn"), del_btn),
             chart_card,
             Div(Div(H3("SQL"), cls="card-header"),
                 Div(NotStr(f"<pre style='background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow-x:auto;font-size:12.5px;'>{q['sql']}</pre>")),
@@ -178,6 +181,17 @@ def sql_result(sql, ai_note=""):
         blocks.append(Div(Div(H3("Chart"), cls="card-header"),
                           *charts.plotly("ad-hoc-chart", cols, data, ctype, x_col, y_col), cls="card"))
     blocks.append(Div(Div(H3("Result"), cls="card-header"), charts.result_table(cols, data), cls="card"))
+    # save-as-query
+    blocks.append(Div(Div(H3("Save this query"), cls="card-header"),
+                      Form(Input(name="title", placeholder="Query name", required=True, cls="askbox", style="max-width:320px;"),
+                           Input(type="hidden", name="sql", value=sql),
+                           Input(type="hidden", name="chart_type", value=ctype),
+                           Input(type="hidden", name="x_col", value=x_col or ""),
+                           Input(type="hidden", name="y_col", value=y_col or ""),
+                           Button("💾 Save to Queries", cls="btn primary", type="submit"),
+                           method="post", action="/queries/save",
+                           style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"),
+                      cls="card"))
     return Div(*blocks)
 
 
